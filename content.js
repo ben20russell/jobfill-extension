@@ -381,8 +381,12 @@
         if (!labels.length) return;
 
         for (const [field, patterns] of workLabels.entries()) {
-          if (matchesPattern(labels, patterns) && mostRecentJob[field]) {
-            setInputValue(el, mostRecentJob[field]);
+          const value = field === 'workLocation'
+            ? (mostRecentJob.workLocation || mostRecentJob.location)
+            : mostRecentJob[field];
+
+          if (matchesPattern(labels, patterns) && value) {
+            setInputValue(el, value);
             filled++;
             return; // Next element
           }

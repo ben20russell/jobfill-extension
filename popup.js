@@ -13,7 +13,7 @@ const PROFILE_FIELDS = [
 
 const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 
-const WORK_EXPERIENCE_FIELDS = ['jobTitle', 'company', 'location', 'startDate', 'endDate', 'description'];
+const WORK_EXPERIENCE_FIELDS = ['jobTitle', 'company', 'workLocation', 'startDate', 'endDate', 'description'];
 const MAX_JOBS = 6;
 const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
@@ -62,7 +62,7 @@ function createJobEntry(job = {}, index) {
     <div class="job-field-group">
       <div class="job-field">
         <label>LOCATION</label>
-        <input type="text" class="job-field-input" data-field="location" value="${job.location || ''}" placeholder="San Francisco, CA" />
+        <input type="text" class="job-field-input" data-field="workLocation" value="${job.workLocation || job.location || ''}" placeholder="San Francisco, CA" />
       </div>
     </div>
     
