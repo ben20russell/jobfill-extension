@@ -15,6 +15,8 @@ const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 
 const WORK_EXPERIENCE_FIELDS = ['jobTitle', 'company', 'location', 'startDate', 'endDate', 'description'];
 const MAX_JOBS = 6;
+const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
+let workExperienceSaveTimer = null;
 
 // ── Work Experience Management ────────────────────────────
 function renderWorkExperience() {
@@ -95,7 +97,7 @@ function createJobEntry(job = {}, index) {
   return entry;
 }
 
-function saveWorkExperience() {
+function collectWorkExperienceFromDom() {
   const entries = [];
   document.querySelectorAll('.job-entry').forEach((entry, index) => {
     const job = {};
@@ -107,8 +109,13 @@ function saveWorkExperience() {
     }
   });
 
+  return entries;
+}
+
+function saveWorkExperience({ rerender = false } = {}) {
+  const entries = collectWorkExperienceFromDom();
   chrome.storage.local.set({ workExperience: entries }, () => {
-    renderWorkExperience();
+    if (rerender) renderWorkExperience();
   });
 }
 
@@ -416,7 +423,7 @@ function showToast(message, type = 'info') {
 // ── Event listeners ───────────────────────────────────────
 document.getElementById('btnSave').addEventListener('click', () => {
   saveProfile();
-  saveWorkExperience();
+  saveWorkExperience({ rerender: true });
 });
 document.getElementById('btnAutofill').addEventListener('click', triggerAutofill);
 document.getElementById('btnDetectEmail').addEventListener('click', detectEmailFormat);
@@ -425,7 +432,10 @@ document.getElementById('btnAddExperience').addEventListener('click', addJobEntr
 // Add event listeners to dynamically track work experience changes
 document.addEventListener('input', (e) => {
   if (e.target.classList.contains('job-field-input')) {
-    saveWorkExperience();
+    clearTimeout(workExperienceSaveTimer);
+    workExperienceSaveTimer = setTimeout(() => {
+      saveWorkExperience();
+    }, WORK_EXPERIENCE_SAVE_DEBOUNCE_MS);
   }
 });
 
