@@ -362,9 +362,9 @@
     });
 
     // ── 1.5. Work experience fields ──────────────────────
-    // Try to match work experience fields to the most recent job entry
+    // Map repeated work experience fields by index so each saved job entry
+    // fills its corresponding row instead of repeating only the first job.
     if (workExperience.length > 0) {
-      const mostRecentJob = workExperience[0]; // Assuming first entry is most recent
       const workLabels = new Map([
         ['jobTitle', TEXT_PATTERNS.jobTitle],
         ['company', TEXT_PATTERNS.company],
@@ -374,23 +374,37 @@
         ['description', TEXT_PATTERNS.description],
       ]);
 
+      const workFieldEls = new Map();
+      workLabels.forEach((_, field) => workFieldEls.set(field, []));
+
       textEls.forEach(el => {
         if (el.disabled || el.readOnly) return;
-        
+
         const labels = getElementLabels(el);
         if (!labels.length) return;
 
         for (const [field, patterns] of workLabels.entries()) {
-          const value = field === 'workLocation'
-            ? (mostRecentJob.workLocation || mostRecentJob.location)
-            : mostRecentJob[field];
-
-          if (matchesPattern(labels, patterns) && value) {
-            setInputValue(el, value);
-            filled++;
-            return; // Next element
+          if (matchesPattern(labels, patterns)) {
+            workFieldEls.get(field).push(el);
+            break;
           }
         }
+      });
+
+      workFieldEls.forEach((elements, field) => {
+        elements.forEach((el, index) => {
+          const job = workExperience[index];
+          if (!job) return;
+
+          const value = field === 'workLocation'
+            ? (job.workLocation || job.location)
+            : job[field];
+
+          if (value) {
+            setInputValue(el, value);
+            filled++;
+          }
+        });
       });
     }
 
