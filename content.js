@@ -26,8 +26,8 @@
     jobTitle:     ['job title', 'position', 'title', 'position title', 'job position', 'current title'],
     company:      ['company', 'employer', 'company name', 'organization', 'organization name', 'current company'],
     workLocation: ['work location', 'location', 'job location', 'where did you work', 'employment location'],
-    startDate:    ['start date', 'start month', 'from', 'from date', 'from month', 'employment start', 'began', 'started work'],
-    endDate:      ['end date', 'end month', 'to', 'to date', 'to month', 'employment end', 'finish', 'completion date'],
+    startDate:    ['start date', 'start month', 'from date', 'from month', 'employment start', 'began', 'started work'],
+    endDate:      ['end date', 'end month', 'to date', 'to month', 'employment end', 'finish', 'completion date'],
     description:  ['description', 'role description', 'job description', 'responsibilities', 'what did you do', 'tell us about', 'duties', 'achievements'],
   };
 
@@ -136,6 +136,11 @@
     );
   }
 
+  function isWorkdaySite() {
+    const host = (window.location.hostname || '').toLowerCase();
+    return host.includes('workday.com') || host.includes('myworkdayjobs.com');
+  }
+
   // ── React-safe value setter for text inputs ──────────────
   function setInputValue(el, value) {
     try {
@@ -151,10 +156,46 @@
       el.value = value;
     }
 
-    // Fire all relevant events
-    ['input', 'change', 'blur', 'keyup'].forEach(type => {
+    // Workday is sensitive to synthetic blur/keyup floods; keep events minimal.
+    const eventTypes = isWorkdaySite() ? ['input', 'change'] : ['input', 'change', 'keyup'];
+    eventTypes.forEach(type => {
       el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
     });
+  }
+
+  // ── Normalize date values for date/month controls ───────
+  function normalizeValueForElement(el, value, field) {
+    if (!value) return value;
+
+    const raw = String(value).trim();
+    const type = (el.type || '').toLowerCase();
+    const isExperienceDate = field === 'startDate' || field === 'endDate';
+
+    if (!isExperienceDate || !type) return raw;
+
+    const mmYyyy = raw.match(/^(\d{1,2})\/(\d{4})$/);
+
+    if (type === 'month') {
+      // Convert MM/YYYY -> YYYY-MM for <input type="month">
+      if (mmYyyy) {
+        const mm = String(mmYyyy[1]).padStart(2, '0');
+        const yyyy = mmYyyy[2];
+        return `${yyyy}-${mm}`;
+      }
+      return raw;
+    }
+
+    if (type === 'date' || type === 'datetime-local') {
+      // Convert MM/YYYY -> YYYY-MM-01 for date-like inputs.
+      if (mmYyyy) {
+        const mm = String(mmYyyy[1]).padStart(2, '0');
+        const yyyy = mmYyyy[2];
+        return `${yyyy}-${mm}-01`;
+      }
+      return raw;
+    }
+
+    return raw;
   }
 
   // ── Set a <select> value by fuzzy text matching ──────────
@@ -327,9 +368,9 @@
     let filled = 0;
     let fileHighlights = 0;
 
-    // ── 1. Text inputs and textareas ─────────────────────
+    // ── 1. Text/date inputs and textareas ────────────────
     const textEls = document.querySelectorAll(
-      'input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], textarea'
+      'input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="date"], input[type="month"], input[type="datetime-local"], textarea'
     );
 
     textEls.forEach(el => {
@@ -353,7 +394,7 @@
             }
           }
           if (value) {
-            setInputValue(el, value);
+            setInputValue(el, normalizeValueForElement(el, value, field));
             filled++;
             return; // Next element
           }
@@ -401,7 +442,7 @@
             : job[field];
 
           if (value) {
-            setInputValue(el, value);
+            setInputValue(el, normalizeValueForElement(el, value, field));
             filled++;
           }
         });
