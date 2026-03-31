@@ -136,6 +136,10 @@
     );
   }
 
+  function isDateFieldName(field) {
+    return field === 'startDate' || field === 'endDate';
+  }
+
   // ── Attribute-based fallback field detection ───────────
   function detectFieldFromAttributes(el) {
     const haystack = [
@@ -169,6 +173,8 @@
     if (hasWord('state') || hasWord('province') || hasWord('region')) return 'state';
     if (hasWord('country')) return 'country';
     if (hasWord('salary') || hasWord('compensation')) return 'salary';
+    if ((hasWord('start') || hasWord('from')) && (hasWord('date') || hasWord('month'))) return 'startDate';
+    if ((hasWord('end') || hasWord('to')) && (hasWord('date') || hasWord('month'))) return 'endDate';
 
     return null;
   }
@@ -179,7 +185,9 @@
   }
 
   // ── React-safe value setter for text inputs ──────────────
-  function setInputValue(el, value) {
+  function setInputValue(el, value, options = {}) {
+    const { isDateLike = false } = options;
+
     try {
       // Use native prototype setter (works with React controlled inputs)
       const proto = Object.getPrototypeOf(el);
@@ -193,43 +201,82 @@
       el.value = value;
     }
 
-    // Workday is sensitive to synthetic blur/keyup floods; keep events minimal.
+    // Workday is sensitive to synthetic key floods; keep the baseline events small.
     const eventTypes = isWorkdaySite() ? ['input', 'change'] : ['input', 'change', 'keyup'];
+    if (isDateLike && !eventTypes.includes('blur')) {
+      eventTypes.push('blur');
+    }
     eventTypes.forEach(type => {
       el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
     });
   }
 
   // ── Normalize date values for date/month controls ───────
+  function parseDateParts(rawValue) {
+    const raw = String(rawValue || '').trim();
+    if (!raw) return null;
+
+    let m = raw.match(/^(\d{1,2})[\/\-](\d{4})$/); // MM/YYYY or MM-YYYY
+    if (m) {
+      const month = Number(m[1]);
+      const year = Number(m[2]);
+      if (month >= 1 && month <= 12) return { year, month, day: 1 };
+    }
+
+    m = raw.match(/^(\d{4})[\/\-](\d{1,2})(?:[\/\-](\d{1,2}))?$/); // YYYY-MM or YYYY-MM-DD
+    if (m) {
+      const year = Number(m[1]);
+      const month = Number(m[2]);
+      const day = Number(m[3] || 1);
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return { year, month, day };
+      }
+    }
+
+    m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // MM/DD/YYYY
+    if (m) {
+      const month = Number(m[1]);
+      const day = Number(m[2]);
+      const year = Number(m[3]);
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return { year, month, day };
+      }
+    }
+
+    return null;
+  }
+
   function normalizeValueForElement(el, value, field) {
     if (!value) return value;
 
     const raw = String(value).trim();
     const type = (el.type || '').toLowerCase();
-    const isExperienceDate = field === 'startDate' || field === 'endDate';
+    const isExperienceDate = isDateFieldName(field);
 
     if (!isExperienceDate || !type) return raw;
 
-    const mmYyyy = raw.match(/^(\d{1,2})\/(\d{4})$/);
+    const parsed = parseDateParts(raw);
+    if (!parsed) return raw;
+
+    const mm = String(parsed.month).padStart(2, '0');
+    const yyyy = String(parsed.year);
+    const dd = String(parsed.day || 1).padStart(2, '0');
 
     if (type === 'month') {
-      // Convert MM/YYYY -> YYYY-MM for <input type="month">
-      if (mmYyyy) {
-        const mm = String(mmYyyy[1]).padStart(2, '0');
-        const yyyy = mmYyyy[2];
-        return `${yyyy}-${mm}`;
-      }
-      return raw;
+      return `${yyyy}-${mm}`;
     }
 
-    if (type === 'date' || type === 'datetime-local') {
-      // Convert MM/YYYY -> YYYY-MM-01 for date-like inputs.
-      if (mmYyyy) {
-        const mm = String(mmYyyy[1]).padStart(2, '0');
-        const yyyy = mmYyyy[2];
-        return `${yyyy}-${mm}-01`;
-      }
-      return raw;
+    if (type === 'date') {
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    if (type === 'datetime-local') {
+      return `${yyyy}-${mm}-${dd}T00:00`;
+    }
+
+    // Keep month/year for text-like date inputs used by many ATS UIs.
+    if (type === 'text' || type === 'search' || type === 'tel' || type === 'number') {
+      return `${mm}/${yyyy}`;
     }
 
     return raw;
@@ -425,7 +472,7 @@
             value = generateEmailFromFormat(profile.firstName, profile.lastName, emailInfo.detectedFormat, emailInfo.domain) || value;
           }
         }
-        setInputValue(el, normalizeValueForElement(el, value, inferredField));
+        setInputValue(el, normalizeValueForElement(el, value, inferredField), { isDateLike: isDateFieldName(inferredField) });
         filled++;
         return;
       }
@@ -447,7 +494,7 @@
             }
           }
           if (value) {
-            setInputValue(el, normalizeValueForElement(el, value, field));
+            setInputValue(el, normalizeValueForElement(el, value, field), { isDateLike: isDateFieldName(field) });
             filled++;
             return; // Next element
           }
@@ -475,13 +522,22 @@
         if (el.disabled || el.readOnly) return;
 
         const labels = getElementLabels(el);
-        if (!labels.length) return;
+        const inferredField = detectFieldFromAttributes(el);
 
+        let matchedField = null;
         for (const [field, patterns] of workLabels.entries()) {
           if (matchesPattern(labels, patterns)) {
-            workFieldEls.get(field).push(el);
+            matchedField = field;
             break;
           }
+        }
+
+        if (!matchedField && inferredField && workLabels.has(inferredField)) {
+          matchedField = inferredField;
+        }
+
+        if (matchedField) {
+          workFieldEls.get(matchedField).push(el);
         }
       });
 
@@ -495,7 +551,7 @@
             : job[field];
 
           if (value) {
-            setInputValue(el, normalizeValueForElement(el, value, field));
+            setInputValue(el, normalizeValueForElement(el, value, field), { isDateLike: isDateFieldName(field) });
             filled++;
           }
         });
