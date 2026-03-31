@@ -13,7 +13,7 @@
     "<all_urls>"
   ],
   "action": {
-    "default_title": "JobFill",
+    "default_title": "JobFill-extension",
     "default_popup": "popup.html"
   },
   "content_scripts": [
