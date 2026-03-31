@@ -136,6 +136,43 @@
     );
   }
 
+  // ── Attribute-based fallback field detection ───────────
+  function detectFieldFromAttributes(el) {
+    const haystack = [
+      el.name,
+      el.id,
+      el.getAttribute('autocomplete'),
+      el.getAttribute('aria-label'),
+      el.getAttribute('data-automation-id'),
+      el.getAttribute('data-automation-label'),
+      el.getAttribute('data-uxi-element-id'),
+      el.getAttribute('data-field'),
+      el.getAttribute('data-testid'),
+      el.placeholder,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    if (!haystack) return null;
+
+    const hasWord = (token) => new RegExp(`(^|[^a-z])${token}([^a-z]|$)`, 'i').test(haystack);
+
+    if (hasWord('first') && hasWord('name')) return 'firstName';
+    if (hasWord('last') && hasWord('name')) return 'lastName';
+    if (hasWord('email')) return 'email';
+    if (hasWord('phone') || hasWord('mobile') || hasWord('telephone') || hasWord('tel')) return 'phone';
+    if ((hasWord('postal') || hasWord('zip')) && hasWord('code')) return 'zipCode';
+    if (hasWord('linkedin')) return 'linkedin';
+    if (hasWord('website') || hasWord('portfolio') || hasWord('url')) return 'website';
+    if (hasWord('city')) return 'city';
+    if (hasWord('state') || hasWord('province') || hasWord('region')) return 'state';
+    if (hasWord('country')) return 'country';
+    if (hasWord('salary') || hasWord('compensation')) return 'salary';
+
+    return null;
+  }
+
   function isWorkdaySite() {
     const host = (window.location.hostname || '').toLowerCase();
     return host.includes('workday.com') || host.includes('myworkdayjobs.com');
@@ -370,13 +407,29 @@
 
     // ── 1. Text/date inputs and textareas ────────────────
     const textEls = document.querySelectorAll(
-      'input[type="text"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="date"], input[type="month"], input[type="datetime-local"], textarea'
+      'input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="number"], input[type="date"], input[type="month"], input[type="datetime-local"], textarea'
     );
 
     textEls.forEach(el => {
       if (el.disabled || el.readOnly) return;
       
       const labels = getElementLabels(el);
+
+      // Workday/Greenhouse often expose stable field identity in attrs rather than visible labels.
+      const inferredField = detectFieldFromAttributes(el);
+      if (inferredField && profile[inferredField]) {
+        let value = profile[inferredField];
+        if (inferredField === 'email' && profile.firstName && profile.lastName) {
+          const emailInfo = detectEmailFormat();
+          if (emailInfo?.detectedFormat) {
+            value = generateEmailFromFormat(profile.firstName, profile.lastName, emailInfo.detectedFormat, emailInfo.domain) || value;
+          }
+        }
+        setInputValue(el, normalizeValueForElement(el, value, inferredField));
+        filled++;
+        return;
+      }
+
       if (!labels.length) return;
 
       for (const [field, patterns] of Object.entries(TEXT_PATTERNS)) {
@@ -624,11 +677,13 @@
     const patterns = {};
     const domain = new URL(window.location.href).hostname.replace('www.', '');
 
+    let selectedDomain = domain;
     Array.from(emails).forEach(email => {
       const [localPart, domainPart] = email.split('@');
       
       // Only count emails from current domain
       if (!domainPart.includes(domain.split('.')[0])) return;
+      selectedDomain = domainPart;
 
       // Detect pattern type
       let pattern = 'unknown';
@@ -652,11 +707,37 @@
 
     return {
       detectedFormat: mostCommon,
-      domain: domainPart || domain,
+      domain: selectedDomain || domain,
       emailCount: emails.size,
       examples: Array.from(emails).slice(0, 3),
       rawDomain: domain
     };
+  }
+
+  // ── Retry pass for dynamic job app UIs ─────────────────
+  function autofillWithRetries(profile, workExperience = [], retries = 3, delayMs = 700) {
+    return new Promise((resolve) => {
+      let best = { filled: 0, fileHighlights: 0 };
+      let attempt = 0;
+
+      const run = () => {
+        const result = autofill(profile, workExperience);
+        if ((result.filled + result.fileHighlights) > (best.filled + best.fileHighlights)) {
+          best = result;
+        }
+
+        attempt += 1;
+        const done = attempt > retries;
+        if (done) {
+          resolve(best);
+          return;
+        }
+
+        setTimeout(run, delayMs);
+      };
+
+      run();
+    });
   }
 
   function generateEmailFromFormat(firstName, lastName, format, domainPart) {
@@ -793,8 +874,9 @@
       // Get work experience from storage
       chrome.storage.local.get('workExperience', (result) => {
         const workExperience = result.workExperience || [];
-        const result_obj = autofill(message.profile, workExperience);
-        sendResponse(result_obj);
+        autofillWithRetries(message.profile, workExperience).then((resultObj) => {
+          sendResponse(resultObj);
+        });
       });
       return true; // Will respond asynchronously
     } else if (message.action === 'detectEmail') {
