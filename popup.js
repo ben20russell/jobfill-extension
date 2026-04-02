@@ -16,11 +16,10 @@ const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 const MAX_JOBS = 6;
 const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
-<<<<<<< HEAD
-=======
 const RESUME_SOURCE_URL = 'https://benrussell.myportfolio.com/resume';
 const RESUME_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const MATCH_TEXT_SAVE_DEBOUNCE_MS = 350;
+const MIN_JOB_DESCRIPTION_LENGTH = 120;
 let matchTextSaveTimer = null;
 
 const MATCH_STOP_WORDS = new Set([
@@ -40,7 +39,6 @@ function storageGet(keys) {
 function storageSet(items) {
   return new Promise(resolve => chrome.storage.local.set(items, resolve));
 }
->>>>>>> e199e34 (Add job-to-resume match assessment tab)
 
 // ── Work Experience Management ────────────────────────────
 function renderWorkExperience() {
@@ -255,6 +253,57 @@ function isSupportedAutofillUrl(url = '') {
   return /^https?:\/\//i.test(url);
 }
 
+function requestFromActiveTab(message, errors = {}) {
+  const {
+    noTab = 'No active tab found',
+    unsupported = 'Open a job page (http/https)',
+    cannotRun = 'Cannot run on this page',
+    failed = 'Request failed',
+  } = errors;
+
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab || typeof tab.id !== 'number') {
+        reject(new Error(noTab));
+        return;
+      }
+
+      if (!isSupportedAutofillUrl(tab.url || '')) {
+        reject(new Error(unsupported));
+        return;
+      }
+
+      chrome.tabs.sendMessage(tab.id, message, (response) => {
+        if (chrome.runtime.lastError) {
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js'],
+          }, () => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(cannotRun));
+              return;
+            }
+
+            setTimeout(() => {
+              chrome.tabs.sendMessage(tab.id, message, (retryResponse) => {
+                if (chrome.runtime.lastError) {
+                  reject(new Error(failed));
+                  return;
+                }
+                resolve(retryResponse);
+              });
+            }, 300);
+          });
+          return;
+        }
+
+        resolve(response);
+      });
+    });
+  });
+}
+
 // ── Trigger autofill on the active tab ───────────────────
 function triggerAutofill() {
   chrome.storage.local.get('jobfillProfile', ({ jobfillProfile }) => {
@@ -433,8 +482,6 @@ function handleAutofillResponse(response) {
   showToast(msg, 'info');
 }
 
-<<<<<<< HEAD
-=======
 // ── Match analysis ───────────────────────────────────────
 function normalizeSpace(text = '') {
   return String(text).replace(/\s+/g, ' ').trim();
@@ -595,6 +642,48 @@ async function loadMatchTabState() {
   const textarea = document.getElementById('matchJobDescription');
   textarea.value = (jobMatchState && jobMatchState.jobDescription) || '';
   updateResumeMeta(resumeCache);
+
+  if (!textarea.value.trim()) {
+    extractJobDescriptionFromPage({ silent: true });
+  }
+}
+
+async function extractJobDescriptionFromPage({ force = false, silent = false } = {}) {
+  const textarea = document.getElementById('matchJobDescription');
+  if (!textarea) return;
+
+  const existing = textarea.value.trim();
+  if (!force && existing.length >= MIN_JOB_DESCRIPTION_LENGTH) {
+    return;
+  }
+
+  try {
+    const response = await requestFromActiveTab(
+      { action: 'extractJobDescription' },
+      {
+        unsupported: 'Open the job posting page (http/https) to load details',
+        cannotRun: 'Cannot read job description on this page',
+        failed: 'Could not read job description from this page',
+      }
+    );
+
+    const text = normalizeSpace(response && response.jobDescription);
+    if (!text || text.length < MIN_JOB_DESCRIPTION_LENGTH) {
+      if (!silent) showToast('No substantial job description found on this page', 'error');
+      return;
+    }
+
+    textarea.value = text;
+    await storageSet({ jobMatchState: { jobDescription: text } });
+
+    if (!silent) {
+      showToast('✓ Job description loaded from page', 'success');
+    }
+  } catch (err) {
+    if (!silent) {
+      showToast(err.message || 'Could not load job description', 'error');
+    }
+  }
 }
 
 async function refreshResumeCache() {
@@ -620,7 +709,7 @@ async function analyzeMatch() {
   const jobDescription = descriptionEl.value.trim();
 
   if (jobDescription.length < 80) {
-    showToast('Paste a fuller job description first', 'error');
+    showToast('Open a job posting page to auto-load details first', 'error');
     return;
   }
 
@@ -664,7 +753,6 @@ async function analyzeMatch() {
   }
 }
 
->>>>>>> e199e34 (Add job-to-resume match assessment tab)
 // ── Toast utility ─────────────────────────────────────────
 function showToast(message, type = 'info') {
   const toast = document.getElementById('toast');
@@ -684,8 +772,6 @@ document.getElementById('btnSave').addEventListener('click', () => {
 document.getElementById('btnAutofill').addEventListener('click', triggerAutofill);
 document.getElementById('btnDetectEmail').addEventListener('click', detectEmailFormat);
 document.getElementById('btnAddExperience').addEventListener('click', addJobEntry);
-<<<<<<< HEAD
-=======
 document.getElementById('btnAnalyzeMatch').addEventListener('click', analyzeMatch);
 document.getElementById('btnRefreshResume').addEventListener('click', refreshResumeCache);
 document.getElementById('matchJobDescription').addEventListener('input', (e) => {
@@ -694,7 +780,6 @@ document.getElementById('matchJobDescription').addEventListener('input', (e) => 
     storageSet({ jobMatchState: { jobDescription: e.target.value.trim() } });
   }, MATCH_TEXT_SAVE_DEBOUNCE_MS);
 });
->>>>>>> e199e34 (Add job-to-resume match assessment tab)
 
 // Add event listeners to dynamically track work experience changes
 document.addEventListener('input', (e) => {
@@ -709,7 +794,12 @@ document.addEventListener('input', (e) => {
 // ── Init ──────────────────────────────────────────────────
 loadProfile();
 renderWorkExperience();
-<<<<<<< HEAD
-=======
 loadMatchTabState();
->>>>>>> e199e34 (Add job-to-resume match assessment tab)
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.dataset.tab === 'match') {
+      extractJobDescriptionFromPage({ silent: true });
+    }
+  });
+});
