@@ -18,9 +18,7 @@ const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
 const RESUME_SOURCE_URL = 'https://benrussell.myportfolio.com/resume';
 const RESUME_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-const MATCH_TEXT_SAVE_DEBOUNCE_MS = 350;
 const MIN_JOB_DESCRIPTION_LENGTH = 120;
-let matchTextSaveTimer = null;
 
 const MATCH_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'by', 'can', 'for', 'from', 'if',
@@ -639,22 +637,32 @@ function runMatchAnalysis(jobDescription, candidateCorpus) {
 
 async function loadMatchTabState() {
   const { jobMatchState, resumeCache } = await storageGet(['jobMatchState', 'resumeCache']);
-  const textarea = document.getElementById('matchJobDescription');
-  textarea.value = (jobMatchState && jobMatchState.jobDescription) || '';
+  updateJobDescriptionPreview((jobMatchState && jobMatchState.jobDescription) || '', (jobMatchState && jobMatchState.url) || '');
   updateResumeMeta(resumeCache);
 
-  if (!textarea.value.trim()) {
-    extractJobDescriptionFromPage({ silent: true });
+  extractJobDescriptionFromPage({ silent: true });
+}
+
+function updateJobDescriptionPreview(text = '', url = '') {
+  const preview = document.getElementById('matchJobDescriptionPreview');
+  if (!preview) return;
+
+  const clean = normalizeSpace(text);
+  if (!clean) {
+    preview.textContent = 'No job description scanned yet.';
+    return;
   }
+
+  const suffix = url ? ` Source: ${url}` : '';
+  preview.textContent = `${clean.slice(0, 240)}${clean.length > 240 ? '...' : ''}${suffix}`;
 }
 
 async function extractJobDescriptionFromPage({ force = false, silent = false } = {}) {
-  const textarea = document.getElementById('matchJobDescription');
-  if (!textarea) return;
-
-  const existing = textarea.value.trim();
+  const { jobMatchState } = await storageGet('jobMatchState');
+  const existing = normalizeSpace(jobMatchState && jobMatchState.jobDescription);
   if (!force && existing.length >= MIN_JOB_DESCRIPTION_LENGTH) {
-    return;
+    updateJobDescriptionPreview(existing, (jobMatchState && jobMatchState.url) || '');
+    return existing;
   }
 
   try {
@@ -670,19 +678,26 @@ async function extractJobDescriptionFromPage({ force = false, silent = false } =
     const text = normalizeSpace(response && response.jobDescription);
     if (!text || text.length < MIN_JOB_DESCRIPTION_LENGTH) {
       if (!silent) showToast('No substantial job description found on this page', 'error');
-      return;
+      return '';
     }
 
-    textarea.value = text;
-    await storageSet({ jobMatchState: { jobDescription: text } });
+    await storageSet({
+      jobMatchState: {
+        jobDescription: text,
+        url: response && response.url ? response.url : '',
+      },
+    });
+    updateJobDescriptionPreview(text, (response && response.url) || '');
 
     if (!silent) {
       showToast('✓ Job description loaded from page', 'success');
     }
+    return text;
   } catch (err) {
     if (!silent) {
       showToast(err.message || 'Could not load job description', 'error');
     }
+    return '';
   }
 }
 
@@ -705,15 +720,20 @@ async function refreshResumeCache() {
 }
 
 async function analyzeMatch() {
-  const descriptionEl = document.getElementById('matchJobDescription');
-  const jobDescription = descriptionEl.value.trim();
+  const jobDescription = await extractJobDescriptionFromPage({ force: true, silent: false });
 
-  if (jobDescription.length < 80) {
+  if (!jobDescription || jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
     showToast('Open a job posting page to auto-load details first', 'error');
     return;
   }
 
-  await storageSet({ jobMatchState: { jobDescription } });
+  const { jobMatchState } = await storageGet('jobMatchState');
+  await storageSet({
+    jobMatchState: {
+      jobDescription,
+      url: (jobMatchState && jobMatchState.url) || '',
+    },
+  });
 
   const analyzeBtn = document.getElementById('btnAnalyzeMatch');
   const oldButtonText = analyzeBtn.textContent;
@@ -774,12 +794,6 @@ document.getElementById('btnDetectEmail').addEventListener('click', detectEmailF
 document.getElementById('btnAddExperience').addEventListener('click', addJobEntry);
 document.getElementById('btnAnalyzeMatch').addEventListener('click', analyzeMatch);
 document.getElementById('btnRefreshResume').addEventListener('click', refreshResumeCache);
-document.getElementById('matchJobDescription').addEventListener('input', (e) => {
-  clearTimeout(matchTextSaveTimer);
-  matchTextSaveTimer = setTimeout(() => {
-    storageSet({ jobMatchState: { jobDescription: e.target.value.trim() } });
-  }, MATCH_TEXT_SAVE_DEBOUNCE_MS);
-});
 
 // Add event listeners to dynamically track work experience changes
 document.addEventListener('input', (e) => {

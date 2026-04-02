@@ -550,6 +550,19 @@
       margin-top: 8px;
       line-height: 1.4;
     }
+
+    .match-source-preview {
+      margin-top: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      font-size: 10px;
+      color: var(--text-dim);
+      line-height: 1.4;
+      max-height: 82px;
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
@@ -857,21 +870,18 @@
       <div class="file-hint" style="margin-bottom: 14px">
         <span class="file-hint-icon">🎯</span>
         <span class="file-hint-text">
-          Paste a job description to assess alignment against your saved profile, work experience, and resume page.
+          Job details are scanned automatically from the active job posting page.
         </span>
       </div>
 
       <div class="section">
         <div class="section-label">Job Description</div>
-        <div class="field">
-          <label>ROLE DETAILS (AUTO-LOADED FROM PAGE)</label>
-          <textarea id="matchJobDescription" placeholder="Open a job posting tab and this will auto-fill."></textarea>
-          <div class="hint">Resume source: https://benrussell.myportfolio.com/resume</div>
-        </div>
+        <div class="hint">Resume source: https://benrussell.myportfolio.com/resume</div>
         <div class="match-actions">
           <button class="btn btn-ghost" id="btnRefreshResume">REFRESH RESUME</button>
           <button class="btn btn-primary" id="btnAnalyzeMatch">ANALYZE MATCH</button>
         </div>
+        <div class="match-source-preview" id="matchJobDescriptionPreview">No job description scanned yet.</div>
         <div class="match-meta" id="matchResumeMeta">Resume status: not fetched yet.</div>
       </div>
 
@@ -887,12 +897,12 @@
         </div>
 
         <div class="match-block">
-          <div class="match-block-title">STRENGTHS</div>
+          <div class="match-block-title">WHERE YOU SHINE (STRONG MATCH)</div>
           <ul class="match-list" id="matchStrengths"></ul>
         </div>
 
         <div class="match-block">
-          <div class="match-block-title">GAPS</div>
+          <div class="match-block-title">POTENTIAL GAPS TO ADDRESS (WEAK MATCH)</div>
           <ul class="match-list" id="matchGaps"></ul>
         </div>
 
