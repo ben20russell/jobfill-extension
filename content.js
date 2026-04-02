@@ -770,6 +770,59 @@
     };
   }
 
+  function extractJobDescription() {
+    const selectors = [
+      '[data-automation-id*="jobPosting"]',
+      '[data-automation-id*="jobDescription"]',
+      '[class*="job-description"]',
+      '[id*="job-description"]',
+      '[class*="description"]',
+      'article',
+      'main',
+    ];
+
+    const scoreTextBlock = (el) => {
+      const text = (el && el.innerText ? el.innerText : '').replace(/\s+/g, ' ').trim();
+      if (!text) return { text: '', score: 0 };
+
+      const keywordHits = [
+        'responsibilities', 'requirements', 'qualifications', 'about the role',
+        'what you will do', 'what we are looking for', 'preferred', 'experience',
+      ].reduce((count, key) => count + (text.toLowerCase().includes(key) ? 1 : 0), 0);
+
+      return {
+        text,
+        score: Math.min(text.length, 12000) + keywordHits * 1200,
+      };
+    };
+
+    let best = { text: '', score: 0, source: 'body' };
+
+    selectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((el) => {
+        const candidate = scoreTextBlock(el);
+        if (candidate.score > best.score) {
+          best = { ...candidate, source: selector };
+        }
+      });
+    });
+
+    if (!best.text || best.text.length < 120) {
+      const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+      best = {
+        text: bodyText,
+        score: bodyText.length,
+        source: 'body',
+      };
+    }
+
+    return {
+      jobDescription: (best.text || '').slice(0, 16000),
+      source: best.source,
+      url: window.location.href,
+    };
+  }
+
   // ── Retry pass for dynamic job app UIs ─────────────────
   function autofillWithRetries(profile, workExperience = [], retries = 3, delayMs = 700) {
     return new Promise((resolve) => {
@@ -938,6 +991,8 @@
     } else if (message.action === 'detectEmail') {
       const emailInfo = detectEmailFormat();
       sendResponse(emailInfo);
+    } else if (message.action === 'extractJobDescription') {
+      sendResponse(extractJobDescription());
     }
     return true;
   });
