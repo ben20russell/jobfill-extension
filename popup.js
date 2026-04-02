@@ -30,6 +30,17 @@ const MATCH_STOP_WORDS = new Set([
   'required', 'requirements', 'qualification', 'qualifications', 'experience', 'years', 'year',
 ]);
 
+const REQUIREMENT_TAXONOMY = [
+  { id: 'leadership', label: 'Leadership and team ownership', terms: ['lead', 'leadership', 'manage', 'manager', 'mentor', 'ownership', 'cross-functional'] },
+  { id: 'execution', label: 'Execution and delivery', terms: ['deliver', 'execution', 'roadmap', 'ship', 'deadline', 'launch', 'prioritize'] },
+  { id: 'communication', label: 'Communication and stakeholder alignment', terms: ['communicat', 'present', 'stakeholder', 'collaborat', 'partner', 'influence'] },
+  { id: 'analytics', label: 'Data and analytics fluency', terms: ['data', 'analytics', 'metric', 'kpi', 'sql', 'report', 'insight', 'dashboard'] },
+  { id: 'product', label: 'Product thinking', terms: ['product', 'user', 'customer', 'discovery', 'requirements', 'feature', 'backlog'] },
+  { id: 'engineering', label: 'Software engineering execution', terms: ['engineer', 'architecture', 'system', 'api', 'backend', 'frontend', 'code'] },
+  { id: 'ai', label: 'AI/ML exposure', terms: ['ai', 'ml', 'machine learning', 'llm', 'model', 'prompt', 'inference'] },
+  { id: 'cloud', label: 'Cloud/platform experience', terms: ['aws', 'azure', 'gcp', 'cloud', 'kubernetes', 'docker', 'terraform'] },
+];
+
 function storageGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
 }
@@ -494,6 +505,14 @@ function tokenizeMatchText(text = '') {
     .filter(token => token.length > 2 && !MATCH_STOP_WORDS.has(token));
 }
 
+function splitSentences(text = '') {
+  return String(text)
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 function extractTopKeywords(text, limit = 18) {
   const counts = new Map();
   tokenizeMatchText(text).forEach(token => {
@@ -539,6 +558,73 @@ function extractRoleNeeds(jobDescription) {
 
   const fallback = extractTopKeywords(jobDescription, 8).map(token => `Strong signal around ${formatKeyword(token)}`);
   return fallback;
+}
+
+function dedupeByKey(items, keyFn) {
+  const seen = new Set();
+  const out = [];
+  items.forEach(item => {
+    const key = keyFn(item);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(item);
+    }
+  });
+  return out;
+}
+
+function extractStructuredRequirements(jobDescription) {
+  const lines = String(jobDescription)
+    .split(/\n+/)
+    .map(line => line.replace(/^[-*\d.)\s]+/, '').trim())
+    .filter(Boolean);
+
+  const signalRegex = /(must|required|need to|seeking|looking for|experience with|proficient|responsible for|knowledge of|hands-on|preferred)/i;
+
+  const direct = lines
+    .filter(line => signalRegex.test(line))
+    .slice(0, 16)
+    .map(line => ({
+      id: `direct:${line.toLowerCase().slice(0, 50)}`,
+      label: line,
+      terms: tokenizeMatchText(line).slice(0, 10),
+      source: 'direct',
+      weight: 1.3,
+    }));
+
+  const lower = String(jobDescription).toLowerCase();
+  const taxonomy = REQUIREMENT_TAXONOMY
+    .filter(item => item.terms.some(term => lower.includes(term)))
+    .map(item => ({
+      id: `taxonomy:${item.id}`,
+      label: item.label,
+      terms: item.terms,
+      source: 'taxonomy',
+      weight: 1.0,
+    }));
+
+  const merged = dedupeByKey([...direct, ...taxonomy], item => item.id);
+  return merged.slice(0, 20);
+}
+
+function sentenceEvidenceScore(sentenceLower, requirementTerms) {
+  const matchedTerms = requirementTerms.filter(term => sentenceLower.includes(term));
+  return {
+    score: matchedTerms.length,
+    matchedTerms,
+  };
+}
+
+function findBestEvidenceForRequirement(requirement, evidenceSentences) {
+  let best = null;
+  evidenceSentences.forEach(sentence => {
+    const sentenceLower = sentence.toLowerCase();
+    const match = sentenceEvidenceScore(sentenceLower, requirement.terms);
+    if (!best || match.score > best.score) {
+      best = { sentence, score: match.score, matchedTerms: match.matchedTerms };
+    }
+  });
+  return best;
 }
 
 function buildCandidateCorpus(profile = {}, workExperience = [], resumeText = '') {
@@ -611,27 +697,49 @@ async function fetchResumeText({ forceRefresh = false } = {}) {
 }
 
 function runMatchAnalysis(jobDescription, candidateCorpus) {
-  const jobKeywords = extractTopKeywords(jobDescription, 20);
-  const candidateTokenSet = new Set(tokenizeMatchText(candidateCorpus));
+  const requirements = extractStructuredRequirements(jobDescription);
+  const evidenceSentences = splitSentences(candidateCorpus);
 
-  const strengths = jobKeywords
-    .filter(token => candidateTokenSet.has(token))
+  const evaluated = requirements.map(req => {
+    const evidence = findBestEvidenceForRequirement(req, evidenceSentences);
+    const confidence = evidence ? Math.min(1, evidence.score / 3) : 0;
+    return {
+      ...req,
+      evidence,
+      confidence,
+      weightedHit: req.weight * confidence,
+      weightedTotal: req.weight,
+    };
+  });
+
+  const totalWeight = evaluated.reduce((sum, item) => sum + item.weightedTotal, 0) || 1;
+  const hitWeight = evaluated.reduce((sum, item) => sum + item.weightedHit, 0);
+  const score = Math.round((hitWeight / totalWeight) * 100);
+
+  const strengths = evaluated
+    .filter(item => item.confidence >= 0.45)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 7)
+    .map(item => {
+      const ev = item.evidence ? item.evidence.sentence.slice(0, 150) : '';
+      return `${item.label} -> Evidence from your background: ${ev}${ev.length === 150 ? '...' : ''}`;
+    });
+
+  const gaps = evaluated
+    .filter(item => item.confidence < 0.45)
+    .sort((a, b) => a.confidence - b.confidence)
+    .slice(0, 7)
+    .map(item => `Limited direct evidence for: ${item.label}. Add a concrete example in resume/experience if this is part of your background.`);
+
+  const lookingFor = evaluated
     .slice(0, 8)
-    .map(token => `${formatKeyword(token)} is represented in your resume/profile.`);
-
-  const gaps = jobKeywords
-    .filter(token => !candidateTokenSet.has(token))
-    .slice(0, 8)
-    .map(token => `${formatKeyword(token)} appears in the job description but not clearly in your stored resume/profile.`);
-
-  const scoreBase = Math.max(jobKeywords.length, 1);
-  const score = Math.round((strengths.length / scoreBase) * 100);
+    .map(item => item.label);
 
   return {
     score,
     strengths,
     gaps,
-    lookingFor: extractRoleNeeds(jobDescription).slice(0, 8),
+    lookingFor,
   };
 }
 
