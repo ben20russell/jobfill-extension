@@ -13,7 +13,6 @@ const PROFILE_FIELDS = [
 
 const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 
-const WORK_EXPERIENCE_FIELDS = ['jobTitle', 'company', 'workLocation', 'startDate', 'endDate', 'description'];
 const MAX_JOBS = 6;
 const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
@@ -403,7 +402,7 @@ function handleAutofillResponse(response) {
     showToast('Could not reach page', 'error');
     return;
   }
-  const { filled, skipped, fileHighlights } = response;
+  const { filled, fileHighlights } = response;
   let msg = `◆ ${filled} field${filled !== 1 ? 's' : ''} filled`;
   if (fileHighlights > 0) msg += ` · ${fileHighlights} file field${fileHighlights !== 1 ? 's' : ''} highlighted`;
   showToast(msg, 'info');
