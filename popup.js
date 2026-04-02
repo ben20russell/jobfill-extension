@@ -48,11 +48,44 @@ const DEFAULT_LLM_MODELS = {
 };
 
 const GEMINI_MODEL_FALLBACKS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
   'gemini-1.5-pro-latest',
   'gemini-1.5-pro',
   'gemini-1.5-flash-latest',
   'gemini-1.5-flash',
 ];
+
+function uniqueNonEmpty(values = []) {
+  return values.filter((v, i, arr) => v && arr.indexOf(v) === i);
+}
+
+async function discoverGeminiGenerateModels(apiKey) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+  const response = await fetch(endpoint);
+
+  if (!response.ok) {
+    let errMsg = `Gemini model discovery failed (${response.status})`;
+    try {
+      const errData = await response.json();
+      const apiMessage = errData && errData.error && errData.error.message;
+      if (apiMessage) errMsg = `${errMsg}: ${apiMessage}`;
+    } catch {
+      // Ignore parse failures.
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await response.json();
+  const models = Array.isArray(data.models) ? data.models : [];
+
+  const supported = models
+    .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+    .map(m => String(m.name || '').replace(/^models\//, ''))
+    .filter(Boolean);
+
+  return uniqueNonEmpty(supported);
+}
 
 function storageGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -894,7 +927,24 @@ async function callOpenAiAnalysis({ settings, prompt }) {
 
 async function callGeminiAnalysis({ settings, prompt }) {
   const preferredModel = getConfiguredModel(settings);
-  const modelsToTry = [preferredModel, ...GEMINI_MODEL_FALLBACKS].filter((m, i, arr) => m && arr.indexOf(m) === i);
+  let discoveredModels = [];
+  try {
+    discoveredModels = await discoverGeminiGenerateModels(settings.apiKey);
+  } catch (discoveryErr) {
+    // Continue with static fallbacks if discovery is unavailable.
+    console.warn('[JobFill] Gemini model discovery warning:', discoveryErr.message);
+  }
+
+  const prioritizedDiscovered = discoveredModels.sort((a, b) => {
+    const ai = GEMINI_MODEL_FALLBACKS.indexOf(a);
+    const bi = GEMINI_MODEL_FALLBACKS.indexOf(b);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  const modelsToTry = uniqueNonEmpty([preferredModel, ...prioritizedDiscovered, ...GEMINI_MODEL_FALLBACKS]);
   let lastError = null;
 
   for (const model of modelsToTry) {
