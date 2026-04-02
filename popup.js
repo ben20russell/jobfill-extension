@@ -44,8 +44,15 @@ const REQUIREMENT_TAXONOMY = [
 ];
 
 const DEFAULT_LLM_MODELS = {
-  gemini: 'gemini-1.5-pro',
+  gemini: 'gemini-1.5-pro-latest',
 };
+
+const GEMINI_MODEL_FALLBACKS = [
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-pro',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+];
 
 function storageGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -886,39 +893,63 @@ async function callOpenAiAnalysis({ settings, prompt }) {
 }
 
 async function callGeminiAnalysis({ settings, prompt }) {
-  const model = getConfiguredModel(settings);
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(settings.apiKey)}`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
+  const preferredModel = getConfiguredModel(settings);
+  const modelsToTry = [preferredModel, ...GEMINI_MODEL_FALLBACKS].filter((m, i, arr) => m && arr.indexOf(m) === i);
+  let lastError = null;
+
+  for (const model of modelsToTry) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(settings.apiKey)}`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    }),
-  });
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`Gemini request failed (${response.status})`);
+    if (!response.ok) {
+      let errMsg = `Gemini request failed (${response.status})`;
+      try {
+        const errData = await response.json();
+        const apiMessage = errData && errData.error && errData.error.message;
+        if (apiMessage) errMsg = `${errMsg}: ${apiMessage}`;
+      } catch {
+        // Ignore JSON parse failures for error payload.
+      }
+
+      // 404 is often a model-name mismatch, so try next fallback model.
+      if (response.status === 404) {
+        lastError = new Error(errMsg);
+        continue;
+      }
+
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const content = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+    const parsed = parseJsonFromText(content);
+    const validated = validateLlmResult(parsed);
+    if (!validated) {
+      lastError = new Error('Gemini returned invalid analysis JSON');
+      continue;
+    }
+
+    return validated;
   }
 
-  const data = await response.json();
-  const content = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
-  const parsed = parseJsonFromText(content);
-  const validated = validateLlmResult(parsed);
-  if (!validated) {
-    throw new Error('Gemini returned invalid analysis JSON');
-  }
-  return validated;
+  throw lastError || new Error('Gemini request failed for all configured models');
 }
 
 async function runModelDrivenAnalysis({ settings, jobDescription, candidateCorpus }) {
