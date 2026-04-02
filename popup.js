@@ -16,6 +16,31 @@ const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 const MAX_JOBS = 6;
 const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
+<<<<<<< HEAD
+=======
+const RESUME_SOURCE_URL = 'https://benrussell.myportfolio.com/resume';
+const RESUME_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const MATCH_TEXT_SAVE_DEBOUNCE_MS = 350;
+let matchTextSaveTimer = null;
+
+const MATCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'by', 'can', 'for', 'from', 'if',
+  'in', 'into', 'is', 'it', 'its', 'of', 'on', 'or', 'our', 'that', 'the', 'their', 'there', 'this',
+  'to', 'we', 'with', 'you', 'your', 'will', 'would', 'should', 'must', 'may', 'about', 'able',
+  'across', 'after', 'all', 'also', 'any', 'both', 'each', 'etc', 'have', 'has', 'had', 'more',
+  'most', 'other', 'such', 'than', 'then', 'these', 'those', 'were', 'when', 'where', 'who',
+  'why', 'how', 'job', 'role', 'position', 'team', 'work', 'working', 'candidate', 'preferred',
+  'required', 'requirements', 'qualification', 'qualifications', 'experience', 'years', 'year',
+]);
+
+function storageGet(keys) {
+  return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+
+function storageSet(items) {
+  return new Promise(resolve => chrome.storage.local.set(items, resolve));
+}
+>>>>>>> e199e34 (Add job-to-resume match assessment tab)
 
 // ── Work Experience Management ────────────────────────────
 function renderWorkExperience() {
@@ -408,6 +433,238 @@ function handleAutofillResponse(response) {
   showToast(msg, 'info');
 }
 
+<<<<<<< HEAD
+=======
+// ── Match analysis ───────────────────────────────────────
+function normalizeSpace(text = '') {
+  return String(text).replace(/\s+/g, ' ').trim();
+}
+
+function tokenizeMatchText(text = '') {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9+.#\-/\s]/g, ' ')
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(token => token.length > 2 && !MATCH_STOP_WORDS.has(token));
+}
+
+function extractTopKeywords(text, limit = 18) {
+  const counts = new Map();
+  tokenizeMatchText(text).forEach(token => {
+    counts.set(token, (counts.get(token) || 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([token]) => token);
+}
+
+function formatKeyword(token = '') {
+  return token
+    .split(/[._-]/)
+    .map(chunk => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ');
+}
+
+function extractRoleNeeds(jobDescription) {
+  const lines = String(jobDescription)
+    .split(/\n+/)
+    .map(line => normalizeSpace(line))
+    .filter(Boolean);
+
+  const signalRegex = /(must|required|need|seeking|looking for|experience with|proficient|responsible for|knowledge of|hands-on)/i;
+  const matched = [];
+  const seen = new Set();
+
+  lines.forEach(line => {
+    if (!signalRegex.test(line)) return;
+    const clean = line.replace(/^[-*\d.)\s]+/, '').trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    matched.push(clean);
+  });
+
+  if (matched.length >= 3) {
+    return matched.slice(0, 6);
+  }
+
+  const fallback = extractTopKeywords(jobDescription, 8).map(token => `Strong signal around ${formatKeyword(token)}`);
+  return fallback;
+}
+
+function buildCandidateCorpus(profile = {}, workExperience = [], resumeText = '') {
+  const profileValues = PROFILE_FIELDS
+    .map(field => profile[field] || '')
+    .join(' ');
+
+  const experienceValues = (workExperience || [])
+    .map(job => [job.jobTitle, job.company, job.workLocation, job.description].filter(Boolean).join(' '))
+    .join(' ');
+
+  return normalizeSpace(`${profileValues} ${experienceValues} ${resumeText}`);
+}
+
+function renderMatchList(id, items, emptyText) {
+  const list = document.getElementById(id);
+  list.innerHTML = '';
+
+  const safeItems = items && items.length ? items : [emptyText];
+  safeItems.forEach(item => {
+    const li = document.createElement('li');
+    li.textContent = item;
+    list.appendChild(li);
+  });
+}
+
+function updateResumeMeta(cache) {
+  const meta = document.getElementById('matchResumeMeta');
+  if (!cache || !cache.text || !cache.fetchedAt) {
+    meta.textContent = 'Resume status: not fetched yet.';
+    return;
+  }
+
+  const fetched = new Date(cache.fetchedAt).toLocaleString();
+  const from = cache.source || RESUME_SOURCE_URL;
+  meta.textContent = `Resume status: loaded from ${from} on ${fetched}.`;
+}
+
+async function fetchResumeText({ forceRefresh = false } = {}) {
+  const { resumeCache } = await storageGet('resumeCache');
+  const cacheIsFresh = !!(resumeCache && resumeCache.text && resumeCache.fetchedAt && (Date.now() - resumeCache.fetchedAt < RESUME_CACHE_TTL_MS));
+
+  if (!forceRefresh && cacheIsFresh) {
+    return { text: resumeCache.text, cache: resumeCache, fromCache: true };
+  }
+
+  const response = await fetch(RESUME_SOURCE_URL, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Resume fetch failed (${response.status})`);
+  }
+
+  const html = await response.text();
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  doc.querySelectorAll('script, style, noscript').forEach(node => node.remove());
+  const extracted = normalizeSpace((doc.body && doc.body.innerText) || doc.documentElement.textContent || '');
+
+  if (extracted.length < 80) {
+    throw new Error('Resume text was too short to analyze');
+  }
+
+  const resumeCacheNext = {
+    text: extracted,
+    fetchedAt: Date.now(),
+    source: RESUME_SOURCE_URL,
+  };
+  await storageSet({ resumeCache: resumeCacheNext });
+  return { text: extracted, cache: resumeCacheNext, fromCache: false };
+}
+
+function runMatchAnalysis(jobDescription, candidateCorpus) {
+  const jobKeywords = extractTopKeywords(jobDescription, 20);
+  const candidateTokenSet = new Set(tokenizeMatchText(candidateCorpus));
+
+  const strengths = jobKeywords
+    .filter(token => candidateTokenSet.has(token))
+    .slice(0, 8)
+    .map(token => `${formatKeyword(token)} is represented in your resume/profile.`);
+
+  const gaps = jobKeywords
+    .filter(token => !candidateTokenSet.has(token))
+    .slice(0, 8)
+    .map(token => `${formatKeyword(token)} appears in the job description but not clearly in your stored resume/profile.`);
+
+  const scoreBase = Math.max(jobKeywords.length, 1);
+  const score = Math.round((strengths.length / scoreBase) * 100);
+
+  return {
+    score,
+    strengths,
+    gaps,
+    lookingFor: extractRoleNeeds(jobDescription).slice(0, 8),
+  };
+}
+
+async function loadMatchTabState() {
+  const { jobMatchState, resumeCache } = await storageGet(['jobMatchState', 'resumeCache']);
+  const textarea = document.getElementById('matchJobDescription');
+  textarea.value = (jobMatchState && jobMatchState.jobDescription) || '';
+  updateResumeMeta(resumeCache);
+}
+
+async function refreshResumeCache() {
+  const button = document.getElementById('btnRefreshResume');
+  const oldText = button.textContent;
+  button.textContent = 'REFRESHING...';
+  button.disabled = true;
+
+  try {
+    const { cache } = await fetchResumeText({ forceRefresh: true });
+    updateResumeMeta(cache);
+    showToast('✓ Resume refreshed', 'success');
+  } catch (err) {
+    showToast(`Resume refresh failed: ${err.message}`, 'error');
+  } finally {
+    button.textContent = oldText;
+    button.disabled = false;
+  }
+}
+
+async function analyzeMatch() {
+  const descriptionEl = document.getElementById('matchJobDescription');
+  const jobDescription = descriptionEl.value.trim();
+
+  if (jobDescription.length < 80) {
+    showToast('Paste a fuller job description first', 'error');
+    return;
+  }
+
+  await storageSet({ jobMatchState: { jobDescription } });
+
+  const analyzeBtn = document.getElementById('btnAnalyzeMatch');
+  const oldButtonText = analyzeBtn.textContent;
+  analyzeBtn.textContent = 'ANALYZING...';
+  analyzeBtn.disabled = true;
+
+  try {
+    const [{ jobfillProfile = {} }, { workExperience = [] }, resumeResult] = await Promise.all([
+      storageGet('jobfillProfile'),
+      storageGet('workExperience'),
+      fetchResumeText(),
+    ]);
+
+    updateResumeMeta(resumeResult.cache);
+
+    const candidateCorpus = buildCandidateCorpus(jobfillProfile, workExperience, resumeResult.text);
+    if (candidateCorpus.length < 60) {
+      showToast('Save profile and experience details for a better match', 'error');
+      return;
+    }
+
+    const result = runMatchAnalysis(jobDescription, candidateCorpus);
+    document.getElementById('matchScoreValue').textContent = `${result.score}%`;
+    document.getElementById('matchScoreFill').style.width = `${result.score}%`;
+
+    renderMatchList('matchStrengths', result.strengths, 'No clear strengths detected yet. Add more specifics to your profile/experience.');
+    renderMatchList('matchGaps', result.gaps, 'No major gap signals found from the extracted keywords.');
+    renderMatchList('matchLookingFor', result.lookingFor, 'Could not extract requirement statements from this description.');
+
+    document.getElementById('matchResults').classList.add('visible');
+    showToast('✓ Match analysis ready', 'success');
+  } catch (err) {
+    showToast(`Match analysis failed: ${err.message}`, 'error');
+  } finally {
+    analyzeBtn.textContent = oldButtonText;
+    analyzeBtn.disabled = false;
+  }
+}
+
+>>>>>>> e199e34 (Add job-to-resume match assessment tab)
 // ── Toast utility ─────────────────────────────────────────
 function showToast(message, type = 'info') {
   const toast = document.getElementById('toast');
@@ -427,6 +684,17 @@ document.getElementById('btnSave').addEventListener('click', () => {
 document.getElementById('btnAutofill').addEventListener('click', triggerAutofill);
 document.getElementById('btnDetectEmail').addEventListener('click', detectEmailFormat);
 document.getElementById('btnAddExperience').addEventListener('click', addJobEntry);
+<<<<<<< HEAD
+=======
+document.getElementById('btnAnalyzeMatch').addEventListener('click', analyzeMatch);
+document.getElementById('btnRefreshResume').addEventListener('click', refreshResumeCache);
+document.getElementById('matchJobDescription').addEventListener('input', (e) => {
+  clearTimeout(matchTextSaveTimer);
+  matchTextSaveTimer = setTimeout(() => {
+    storageSet({ jobMatchState: { jobDescription: e.target.value.trim() } });
+  }, MATCH_TEXT_SAVE_DEBOUNCE_MS);
+});
+>>>>>>> e199e34 (Add job-to-resume match assessment tab)
 
 // Add event listeners to dynamically track work experience changes
 document.addEventListener('input', (e) => {
@@ -441,3 +709,7 @@ document.addEventListener('input', (e) => {
 // ── Init ──────────────────────────────────────────────────
 loadProfile();
 renderWorkExperience();
+<<<<<<< HEAD
+=======
+loadMatchTabState();
+>>>>>>> e199e34 (Add job-to-resume match assessment tab)
