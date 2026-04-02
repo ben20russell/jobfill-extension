@@ -862,12 +862,12 @@
     });
 
     btn.addEventListener('click', () => {
-      chrome.storage.local.get('jobfillProfile', ({ jobfillProfile }) => {
+      chrome.storage.local.get(['jobfillProfile', 'workExperience'], ({ jobfillProfile, workExperience = [] }) => {
         if (!jobfillProfile || !jobfillProfile.firstName) {
           showInlineToast('Open the JobFill extension to save your profile first.', 'warn');
           return;
         }
-        const result = autofill(jobfillProfile);
+        const result = autofill(jobfillProfile, workExperience);
         showInlineToast(`◆ ${result.filled} field${result.filled !== 1 ? 's' : ''} filled${result.fileHighlights > 0 ? ` · ${result.fileHighlights} file field${result.fileHighlights !== 1 ? 's' : ''} highlighted` : ''}`, 'success');
       });
     });

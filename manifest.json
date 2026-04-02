@@ -14,7 +14,10 @@
   ],
   "action": {
     "default_title": "JobFill-extension",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icon.svg"
+    }
   },
   "content_scripts": [
     {
