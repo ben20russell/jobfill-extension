@@ -805,6 +805,10 @@ function runMatchAnalysis(jobDescription, candidateCorpus) {
 
 async function loadMatchTabState() {
   const { jobMatchState, resumeCache } = await storageGet(['jobMatchState', 'resumeCache']);
+  const manualInput = document.getElementById('matchManualJobDescription');
+  if (manualInput && jobMatchState && jobMatchState.manualJobDescription) {
+    manualInput.value = jobMatchState.manualJobDescription;
+  }
   updateJobDescriptionPreview((jobMatchState && jobMatchState.jobDescription) || '', (jobMatchState && jobMatchState.url) || '');
   updateResumeMeta(resumeCache);
   await loadLlmSettingsIntoUi();
@@ -1085,21 +1089,38 @@ async function refreshResumeCache() {
 
 async function analyzeMatch() {
   const llmSettings = await saveLlmSettingsFromUi();
+  const manualInput = document.getElementById('matchManualJobDescription');
+  const manualJobDescription = normalizeSpace((manualInput && manualInput.value) || '');
 
-  const jobDescription = await extractJobDescriptionFromPage({ force: true, silent: false });
+  let jobDescription = manualJobDescription;
+  let sourceUrl = '';
+
+  if (jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
+    jobDescription = await extractJobDescriptionFromPage({ force: true, silent: false });
+
+    if (!jobDescription || jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
+      showToast('Paste a full job description or open a job posting page first', 'error');
+      return;
+    }
+
+    const { jobMatchState } = await storageGet('jobMatchState');
+    sourceUrl = (jobMatchState && jobMatchState.url) || '';
+  }
 
   if (!jobDescription || jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
-    showToast('Open a job posting page to auto-load details first', 'error');
+    showToast('Job description is too short to analyze', 'error');
     return;
   }
 
-  const { jobMatchState } = await storageGet('jobMatchState');
   await storageSet({
     jobMatchState: {
       jobDescription,
-      url: (jobMatchState && jobMatchState.url) || '',
+      url: sourceUrl,
+      manualJobDescription,
     },
   });
+
+  updateJobDescriptionPreview(jobDescription, sourceUrl);
 
   const analyzeBtn = document.getElementById('btnAnalyzeMatch');
   const oldButtonText = analyzeBtn.textContent;
@@ -1165,6 +1186,21 @@ document.getElementById('btnDetectEmail').addEventListener('click', detectEmailF
 document.getElementById('btnAddExperience').addEventListener('click', addJobEntry);
 document.getElementById('btnAnalyzeMatch').addEventListener('click', analyzeMatch);
 document.getElementById('btnRefreshResume').addEventListener('click', refreshResumeCache);
+
+const matchManualJobDescriptionInput = document.getElementById('matchManualJobDescription');
+if (matchManualJobDescriptionInput) {
+  matchManualJobDescriptionInput.addEventListener('input', () => {
+    storageGet('jobMatchState').then(({ jobMatchState }) => {
+      const manualJobDescription = normalizeSpace(matchManualJobDescriptionInput.value || '');
+      storageSet({
+        jobMatchState: {
+          ...(jobMatchState || {}),
+          manualJobDescription,
+        },
+      });
+    });
+  });
+}
 
 // Add event listeners to dynamically track work experience changes
 document.addEventListener('input', (e) => {

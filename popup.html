@@ -563,6 +563,14 @@
       max-height: 82px;
       overflow: hidden;
     }
+
+    .match-manual-input {
+      margin-top: 8px;
+    }
+
+    .match-manual-input textarea {
+      min-height: 110px;
+    }
   </style>
 </head>
 <body>
@@ -870,12 +878,17 @@
       <div class="file-hint" style="margin-bottom: 14px">
         <span class="file-hint-icon">🎯</span>
         <span class="file-hint-text">
-          Job details are scanned automatically from the active job posting page.
+          Job details are scanned from the active job posting page, or you can paste them manually below.
         </span>
       </div>
 
       <div class="section">
         <div class="section-label">Job Description</div>
+        <div class="field match-manual-input">
+          <label>MANUAL JOB DESCRIPTION <span class="optional">(optional)</span></label>
+          <textarea id="matchManualJobDescription" placeholder="Paste the full job description here to analyze without scanning the page..."></textarea>
+          <div class="hint">If this field has enough text, analysis uses it instead of scanning the active tab.</div>
+        </div>
         <div class="hint">Resume source: https://benrussell.myportfolio.com/resume</div>
         <div class="match-actions">
           <button class="btn btn-ghost" id="btnRefreshResume">REFRESH RESUME</button>
