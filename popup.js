@@ -19,8 +19,6 @@ let workExperienceSaveTimer = null;
 const RESUME_SOURCE_URL = 'https://benrussell.myportfolio.com/resume';
 const RESUME_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const MIN_JOB_DESCRIPTION_LENGTH = 120;
-const LLM_SETTINGS_KEY = 'jobMatchLlmSettings';
-const FIXED_GEMINI_API_KEY = 'AIzaSyCRaVKel9eZpiW10OTDDj6xY1R4zJ1ttyw';
 
 const MATCH_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'being', 'by', 'can', 'for', 'from', 'if',
@@ -42,50 +40,6 @@ const REQUIREMENT_TAXONOMY = [
   { id: 'ai', label: 'AI/ML exposure', terms: ['ai', 'ml', 'machine learning', 'llm', 'model', 'prompt', 'inference'] },
   { id: 'cloud', label: 'Cloud/platform experience', terms: ['aws', 'azure', 'gcp', 'cloud', 'kubernetes', 'docker', 'terraform'] },
 ];
-
-const DEFAULT_LLM_MODELS = {
-  gemini: 'gemini-1.5-pro-latest',
-};
-
-const GEMINI_MODEL_FALLBACKS = [
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-pro',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-];
-
-function uniqueNonEmpty(values = []) {
-  return values.filter((v, i, arr) => v && arr.indexOf(v) === i);
-}
-
-async function discoverGeminiGenerateModels(apiKey) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-  const response = await fetch(endpoint);
-
-  if (!response.ok) {
-    let errMsg = `Gemini model discovery failed (${response.status})`;
-    try {
-      const errData = await response.json();
-      const apiMessage = errData && errData.error && errData.error.message;
-      if (apiMessage) errMsg = `${errMsg}: ${apiMessage}`;
-    } catch {
-      // Ignore parse failures.
-    }
-    throw new Error(errMsg);
-  }
-
-  const data = await response.json();
-  const models = Array.isArray(data.models) ? data.models : [];
-
-  const supported = models
-    .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-    .map(m => String(m.name || '').replace(/^models\//, ''))
-    .filter(Boolean);
-
-  return uniqueNonEmpty(supported);
-}
 
 function storageGet(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -619,20 +573,6 @@ function dedupeByKey(items, keyFn) {
   return out;
 }
 
-function sanitizeLlmSettings(raw = {}) {
-  const provider = 'gemini';
-  return {
-    provider,
-    model: String(raw.model || '').trim() || DEFAULT_LLM_MODELS.gemini,
-    apiKey: FIXED_GEMINI_API_KEY,
-  };
-}
-
-function getConfiguredModel(settings) {
-  if (settings.model) return settings.model;
-  return DEFAULT_LLM_MODELS[settings.provider] || '';
-}
-
 function extractStructuredRequirements(jobDescription) {
   const lines = String(jobDescription)
     .split(/\n+/)
@@ -811,204 +751,8 @@ async function loadMatchTabState() {
   }
   updateJobDescriptionPreview((jobMatchState && jobMatchState.jobDescription) || '', (jobMatchState && jobMatchState.url) || '');
   updateResumeMeta(resumeCache);
-  await loadLlmSettingsIntoUi();
 
   extractJobDescriptionFromPage({ silent: true });
-}
-
-async function loadLlmSettingsIntoUi() {
-  const data = await storageGet(LLM_SETTINGS_KEY);
-  const settings = sanitizeLlmSettings(data[LLM_SETTINGS_KEY] || {});
-
-  const providerEl = document.getElementById('matchModelProvider');
-  const modelEl = document.getElementById('matchModelName');
-  const keyEl = document.getElementById('matchApiKey');
-
-  if (providerEl) providerEl.value = settings.provider;
-  if (modelEl) modelEl.value = settings.model;
-  if (keyEl) keyEl.value = settings.apiKey;
-}
-
-async function saveLlmSettingsFromUi() {
-  const settings = sanitizeLlmSettings({ provider: 'gemini' });
-
-  await storageSet({ [LLM_SETTINGS_KEY]: settings });
-  return settings;
-}
-
-function parseJsonFromText(text = '') {
-  const clean = String(text).trim();
-  if (!clean) return null;
-  try {
-    return JSON.parse(clean);
-  } catch (_) {
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function buildLlmPrompt({ jobDescription, candidateCorpus }) {
-  return `You are an expert hiring analyst.
-
-Task:
-Analyze match between the job description and candidate background. Be strict and evidence-based.
-
-Output requirements:
-- Return ONLY valid JSON.
-- Use this exact schema:
-{
-  "score": number,
-  "strengths": string[],
-  "gaps": string[],
-  "lookingFor": string[]
-}
-- score should be 0-100.
-- strengths must include why it is a strong match with specific evidence from candidate text.
-- gaps must be concrete missing or weakly evidenced requirements.
-- lookingFor should summarize the job's core needs.
-- Keep each bullet concise (<= 180 chars).
-
-Job Description:
-${jobDescription.slice(0, 14000)}
-
-Candidate Background:
-${candidateCorpus.slice(0, 14000)}
-`;
-}
-
-function validateLlmResult(parsed) {
-  if (!parsed || typeof parsed !== 'object') return null;
-  const score = Number(parsed.score);
-  const strengths = Array.isArray(parsed.strengths) ? parsed.strengths : [];
-  const gaps = Array.isArray(parsed.gaps) ? parsed.gaps : [];
-  const lookingFor = Array.isArray(parsed.lookingFor) ? parsed.lookingFor : [];
-
-  if (!Number.isFinite(score)) return null;
-  return {
-    score: Math.max(0, Math.min(100, Math.round(score))),
-    strengths: strengths.map(v => String(v)).filter(Boolean).slice(0, 8),
-    gaps: gaps.map(v => String(v)).filter(Boolean).slice(0, 8),
-    lookingFor: lookingFor.map(v => String(v)).filter(Boolean).slice(0, 8),
-  };
-}
-
-async function callOpenAiAnalysis({ settings, prompt }) {
-  const model = getConfiguredModel(settings);
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: 'You are a precise hiring analyst. Return valid JSON only.' },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI request failed (${response.status})`);
-  }
-
-  const data = await response.json();
-  const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-  const parsed = parseJsonFromText(content);
-  const validated = validateLlmResult(parsed);
-  if (!validated) {
-    throw new Error('OpenAI returned invalid analysis JSON');
-  }
-  return validated;
-}
-
-async function callGeminiAnalysis({ settings, prompt }) {
-  const preferredModel = getConfiguredModel(settings);
-  let discoveredModels = [];
-  try {
-    discoveredModels = await discoverGeminiGenerateModels(settings.apiKey);
-  } catch (discoveryErr) {
-    // Continue with static fallbacks if discovery is unavailable.
-    console.warn('[JobFill] Gemini model discovery warning:', discoveryErr.message);
-  }
-
-  const prioritizedDiscovered = discoveredModels.sort((a, b) => {
-    const ai = GEMINI_MODEL_FALLBACKS.indexOf(a);
-    const bi = GEMINI_MODEL_FALLBACKS.indexOf(b);
-    if (ai === -1 && bi === -1) return 0;
-    if (ai === -1) return 1;
-    if (bi === -1) return -1;
-    return ai - bi;
-  });
-
-  const modelsToTry = uniqueNonEmpty([preferredModel, ...prioritizedDiscovered, ...GEMINI_MODEL_FALLBACKS]);
-  let lastError = null;
-
-  for (const model of modelsToTry) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(settings.apiKey)}`;
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      let errMsg = `Gemini request failed (${response.status})`;
-      try {
-        const errData = await response.json();
-        const apiMessage = errData && errData.error && errData.error.message;
-        if (apiMessage) errMsg = `${errMsg}: ${apiMessage}`;
-      } catch {
-        // Ignore JSON parse failures for error payload.
-      }
-
-      // 404 is often a model-name mismatch, so try next fallback model.
-      if (response.status === 404) {
-        lastError = new Error(errMsg);
-        continue;
-      }
-
-      throw new Error(errMsg);
-    }
-
-    const data = await response.json();
-    const content = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
-    const parsed = parseJsonFromText(content);
-    const validated = validateLlmResult(parsed);
-    if (!validated) {
-      lastError = new Error('Gemini returned invalid analysis JSON');
-      continue;
-    }
-
-    return validated;
-  }
-
-  throw lastError || new Error('Gemini request failed for all configured models');
-}
-
-async function runModelDrivenAnalysis({ settings, jobDescription, candidateCorpus }) {
-  const prompt = buildLlmPrompt({ jobDescription, candidateCorpus });
-  return callGeminiAnalysis({ settings, prompt });
 }
 
 function updateJobDescriptionPreview(text = '', url = '') {
@@ -1088,7 +832,6 @@ async function refreshResumeCache() {
 }
 
 async function analyzeMatch() {
-  const llmSettings = await saveLlmSettingsFromUi();
   const manualInput = document.getElementById('matchManualJobDescription');
   const manualJobDescription = normalizeSpace((manualInput && manualInput.value) || '');
 
@@ -1142,11 +885,7 @@ async function analyzeMatch() {
       return;
     }
 
-    const result = await runModelDrivenAnalysis({
-      settings: llmSettings,
-      jobDescription,
-      candidateCorpus,
-    });
+    const result = runMatchAnalysis(jobDescription, candidateCorpus);
 
     document.getElementById('matchScoreValue').textContent = `${result.score}%`;
     document.getElementById('matchScoreFill').style.width = `${result.score}%`;
