@@ -262,57 +262,6 @@ function isSupportedAutofillUrl(url = '') {
   return /^https?:\/\//i.test(url);
 }
 
-function requestFromActiveTab(message, errors = {}) {
-  const {
-    noTab = 'No active tab found',
-    unsupported = 'Open a job page (http/https)',
-    cannotRun = 'Cannot run on this page',
-    failed = 'Request failed',
-  } = errors;
-
-  return new Promise((resolve, reject) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      if (!tab || typeof tab.id !== 'number') {
-        reject(new Error(noTab));
-        return;
-      }
-
-      if (!isSupportedAutofillUrl(tab.url || '')) {
-        reject(new Error(unsupported));
-        return;
-      }
-
-      chrome.tabs.sendMessage(tab.id, message, (response) => {
-        if (chrome.runtime.lastError) {
-          chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content.js'],
-          }, () => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(cannotRun));
-              return;
-            }
-
-            setTimeout(() => {
-              chrome.tabs.sendMessage(tab.id, message, (retryResponse) => {
-                if (chrome.runtime.lastError) {
-                  reject(new Error(failed));
-                  return;
-                }
-                resolve(retryResponse);
-              });
-            }, 300);
-          });
-          return;
-        }
-
-        resolve(response);
-      });
-    });
-  });
-}
-
 // ── Trigger autofill on the active tab ───────────────────
 function triggerAutofill() {
   chrome.storage.local.get('jobfillProfile', ({ jobfillProfile }) => {
@@ -749,66 +698,7 @@ async function loadMatchTabState() {
   if (manualInput && jobMatchState && jobMatchState.manualJobDescription) {
     manualInput.value = jobMatchState.manualJobDescription;
   }
-  updateJobDescriptionPreview((jobMatchState && jobMatchState.jobDescription) || '', (jobMatchState && jobMatchState.url) || '');
   updateResumeMeta(resumeCache);
-}
-
-function updateJobDescriptionPreview(text = '', url = '') {
-  const preview = document.getElementById('matchJobDescriptionPreview');
-  if (!preview) return;
-
-  const clean = normalizeSpace(text);
-  if (!clean) {
-    preview.textContent = 'No job description loaded yet.';
-    return;
-  }
-
-  const suffix = url ? ` Source: ${url}` : '';
-  preview.textContent = `${clean.slice(0, 240)}${clean.length > 240 ? '...' : ''}${suffix}`;
-}
-
-async function extractJobDescriptionFromPage({ force = false, silent = false } = {}) {
-  const { jobMatchState } = await storageGet('jobMatchState');
-  const existing = normalizeSpace(jobMatchState && jobMatchState.jobDescription);
-  if (!force && existing.length >= MIN_JOB_DESCRIPTION_LENGTH) {
-    updateJobDescriptionPreview(existing, (jobMatchState && jobMatchState.url) || '');
-    return existing;
-  }
-
-  try {
-    const response = await requestFromActiveTab(
-      { action: 'extractJobDescription' },
-      {
-        unsupported: 'Open the job posting page (http/https) to load details',
-        cannotRun: 'Cannot read job description on this page',
-        failed: 'Could not read job description from this page',
-      }
-    );
-
-    const text = normalizeSpace(response && response.jobDescription);
-    if (!text || text.length < MIN_JOB_DESCRIPTION_LENGTH) {
-      if (!silent) showToast('No substantial job description found on this page', 'error');
-      return '';
-    }
-
-    await storageSet({
-      jobMatchState: {
-        jobDescription: text,
-        url: response && response.url ? response.url : '',
-      },
-    });
-    updateJobDescriptionPreview(text, (response && response.url) || '');
-
-    if (!silent) {
-      showToast('✓ Job description loaded from page', 'success');
-    }
-    return text;
-  } catch (err) {
-    if (!silent) {
-      showToast(err.message || 'Could not load job description', 'error');
-    }
-    return '';
-  }
 }
 
 async function refreshResumeCache() {
@@ -833,8 +723,7 @@ async function analyzeMatch() {
   const manualInput = document.getElementById('matchManualJobDescription');
   const manualJobDescription = normalizeSpace((manualInput && manualInput.value) || '');
 
-  let jobDescription = manualJobDescription;
-  let sourceUrl = '';
+  const jobDescription = manualJobDescription;
 
   if (jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
     showToast('Paste a full job description first', 'error');
@@ -848,13 +737,9 @@ async function analyzeMatch() {
 
   await storageSet({
     jobMatchState: {
-      jobDescription,
-      url: sourceUrl,
       manualJobDescription,
     },
   });
-
-  updateJobDescriptionPreview(jobDescription, sourceUrl);
 
   const analyzeBtn = document.getElementById('btnAnalyzeMatch');
   const oldButtonText = analyzeBtn.textContent;
