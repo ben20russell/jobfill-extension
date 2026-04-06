@@ -523,36 +523,61 @@ function dedupeByKey(items, keyFn) {
 }
 
 function extractStructuredRequirements(jobDescription) {
+  const normalized = normalizeSpace(jobDescription);
   const lines = String(jobDescription)
     .split(/\n+/)
-    .map(line => line.replace(/^[-*\d.)\s]+/, '').trim())
+    .map(line => normalizeSpace(line.replace(/^[-*\d.)\s]+/, '')))
+    .filter(Boolean);
+  const sentences = splitSentences(normalized)
+    .map(sentence => normalizeSpace(sentence.replace(/^[-*\d.)\s]+/, '')))
     .filter(Boolean);
 
   const signalRegex = /(must|required|need to|seeking|looking for|experience with|proficient|responsible for|knowledge of|hands-on|preferred)/i;
 
-  const direct = lines
-    .filter(line => signalRegex.test(line))
+  const directCandidates = dedupeByKey(
+    [...lines, ...sentences].filter(line => signalRegex.test(line) && line.length >= 24),
+    line => line.toLowerCase()
+  );
+
+  const direct = directCandidates
     .slice(0, 16)
-    .map(line => ({
-      id: `direct:${line.toLowerCase().slice(0, 50)}`,
-      label: line,
-      terms: tokenizeMatchText(line).slice(0, 10),
+    .map(line => {
+      const terms = tokenizeMatchText(line).slice(0, 10);
+      return {
       source: 'direct',
-      weight: 1.3,
-    }));
+        id: `direct:${line.toLowerCase().slice(0, 50)}`,
+        label: line,
+        terms,
+        weight: terms.length >= 4 ? 1.35 : 1.15,
+      };
+    })
+    .filter(item => item.terms.length >= 2);
 
-  const lower = String(jobDescription).toLowerCase();
+  const lower = normalized.toLowerCase();
   const taxonomy = REQUIREMENT_TAXONOMY
-    .filter(item => item.terms.some(term => lower.includes(term)))
+    .map(item => ({ item, matchedTerms: item.terms.filter(term => lower.includes(term)) }))
+    .filter(({ matchedTerms }) => matchedTerms.length >= 2)
     .map(item => ({
-      id: `taxonomy:${item.id}`,
-      label: item.label,
-      terms: item.terms,
+      id: `taxonomy:${item.item.id}`,
+      label: item.item.label,
+      terms: item.matchedTerms,
       source: 'taxonomy',
-      weight: 1.0,
+      weight: 0.7,
     }));
 
-  const merged = dedupeByKey([...direct, ...taxonomy], item => item.id);
+  const keywordFallback = extractTopKeywords(normalized, 10)
+    .filter(token => token.length >= 4)
+    .slice(0, Math.max(0, 6 - direct.length))
+    .map(token => ({
+      id: `keyword:${token}`,
+      label: `Evidence around ${formatKeyword(token)}`,
+      terms: [token],
+      source: 'keyword',
+      weight: 0.45,
+    }));
+
+  const supplemental = direct.length >= 3 ? [] : [...taxonomy, ...keywordFallback];
+  const merged = dedupeByKey([...direct, ...supplemental], item => item.id);
   return merged.slice(0, 20);
 }
 
@@ -678,7 +703,12 @@ function runMatchAnalysis(jobDescription, candidateCorpus) {
     .filter(item => item.confidence < 0.45)
     .sort((a, b) => a.confidence - b.confidence)
     .slice(0, 7)
-    .map(item => `Limited direct evidence for: ${item.label}. Add a concrete example in resume/experience if this is part of your background.`);
+    .map(item => {
+      if (item.source === 'direct') {
+        return `Limited direct evidence for: ${item.label}. Add a concrete example in resume/experience if this is part of your background.`;
+      }
+      return `Background evidence looks thin around ${item.label}. Add a concrete example in resume/experience if this is part of your background.`;
+    });
 
   const lookingFor = evaluated
     .slice(0, 8)
