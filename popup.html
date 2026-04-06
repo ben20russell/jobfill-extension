@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JobFill</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -878,7 +879,7 @@
       <div class="file-hint" style="margin-bottom: 14px">
         <span class="file-hint-icon">🎯</span>
         <span class="file-hint-text">
-          Job details are scanned from the active job posting page, or you can paste them manually below.
+          Paste the job description below when you want to run a match analysis.
         </span>
       </div>
 
@@ -886,15 +887,15 @@
         <div class="section-label">Job Description</div>
         <div class="field match-manual-input">
           <label>MANUAL JOB DESCRIPTION <span class="optional">(optional)</span></label>
-          <textarea id="matchManualJobDescription" placeholder="Paste the full job description here to analyze without scanning the page..."></textarea>
-          <div class="hint">If this field has enough text, analysis uses it instead of scanning the active tab.</div>
+          <textarea id="matchManualJobDescription" placeholder="Paste the full job description here before analyzing..."></textarea>
+          <div class="hint">Analysis uses the text you paste here.</div>
         </div>
         <div class="hint">Resume source: https://benrussell.myportfolio.com/resume</div>
         <div class="match-actions">
           <button class="btn btn-ghost" id="btnRefreshResume">REFRESH RESUME</button>
           <button class="btn btn-primary" id="btnAnalyzeMatch">ANALYZE MATCH</button>
         </div>
-        <div class="match-source-preview" id="matchJobDescriptionPreview">No job description scanned yet.</div>
+        <div class="match-source-preview" id="matchJobDescriptionPreview">No job description loaded yet.</div>
         <div class="match-meta" id="matchResumeMeta">Resume status: not fetched yet.</div>
       </div>
 

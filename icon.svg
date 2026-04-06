@@ -1,18 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <!-- Background Circle -->
-  <circle cx="64" cy="64" r="60" fill="#0A0A0C"/>
-  
-  <!-- Form/Document with checkmark -->
-  <g transform="translate(64, 64)">
-    <!-- Document/Form -->
-    <rect x="-24" y="-30" width="48" height="60" rx="3" fill="#d2a843" stroke="#d2a843" stroke-width="1"/>
-    
-    <!-- Form lines -->
-    <line x1="-18" y1="-20" x2="14" y2="-20" stroke="#0A0A0C" stroke-width="2" stroke-linecap="round"/>
-    <line x1="-18" y1="-10" x2="14" y2="-10" stroke="#0A0A0C" stroke-width="2" stroke-linecap="round"/>
-    <line x1="-18" y1="0" x2="14" y2="0" stroke="#0A0A0C" stroke-width="2" stroke-linecap="round"/>
-    
-    <!-- Checkmark -->
-    <path d="M -6 12 L 2 20 L 12 8" stroke="#0A0A0C" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="JobFill icon">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="14" x2="112" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#263047"/>
+      <stop offset="1" stop-color="#141A25"/>
+    </linearGradient>
+    <linearGradient id="paperFold" x1="74" y1="28" x2="92" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F5C65A"/>
+      <stop offset="1" stop-color="#B8841B"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="128" height="128" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0B0E14" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+
+  <rect x="10" y="10" width="108" height="108" rx="26" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <path d="M38 24h38l16 16v48c0 8.837-7.163 16-16 16H38c-8.837 0-16-7.163-16-16V40c0-8.837 7.163-16 16-16Z" fill="#F8F3E9"/>
+    <path d="M76 24v12c0 6.627 5.373 12 12 12h4" fill="none" stroke="#E2D8C3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M76 24l16 16H88c-6.627 0-12-5.373-12-12V24Z" fill="url(#paperFold)"/>
+    <rect x="32" y="38" width="8" height="48" rx="4" fill="#B8841B"/>
+    <rect x="46" y="42" width="28" height="6" rx="3" fill="#263047" opacity="0.92"/>
+    <rect x="46" y="56" width="34" height="6" rx="3" fill="#263047" opacity="0.64"/>
+    <rect x="46" y="70" width="24" height="6" rx="3" fill="#263047" opacity="0.64"/>
   </g>
+
+  <circle cx="88" cy="88" r="18" fill="#B8841B"/>
+  <path d="M80 88.5l5.5 5.5L97 81.5" fill="none" stroke="#F8F3E9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

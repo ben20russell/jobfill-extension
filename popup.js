@@ -751,8 +751,6 @@ async function loadMatchTabState() {
   }
   updateJobDescriptionPreview((jobMatchState && jobMatchState.jobDescription) || '', (jobMatchState && jobMatchState.url) || '');
   updateResumeMeta(resumeCache);
-
-  extractJobDescriptionFromPage({ silent: true });
 }
 
 function updateJobDescriptionPreview(text = '', url = '') {
@@ -761,7 +759,7 @@ function updateJobDescriptionPreview(text = '', url = '') {
 
   const clean = normalizeSpace(text);
   if (!clean) {
-    preview.textContent = 'No job description scanned yet.';
+    preview.textContent = 'No job description loaded yet.';
     return;
   }
 
@@ -839,15 +837,8 @@ async function analyzeMatch() {
   let sourceUrl = '';
 
   if (jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
-    jobDescription = await extractJobDescriptionFromPage({ force: true, silent: false });
-
-    if (!jobDescription || jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
-      showToast('Paste a full job description or open a job posting page first', 'error');
-      return;
-    }
-
-    const { jobMatchState } = await storageGet('jobMatchState');
-    sourceUrl = (jobMatchState && jobMatchState.url) || '';
+    showToast('Paste a full job description first', 'error');
+    return;
   }
 
   if (!jobDescription || jobDescription.length < MIN_JOB_DESCRIPTION_LENGTH) {
@@ -955,11 +946,3 @@ document.addEventListener('input', (e) => {
 loadProfile();
 renderWorkExperience();
 loadMatchTabState();
-
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    if (tab.dataset.tab === 'match') {
-      extractJobDescriptionFromPage({ silent: true });
-    }
-  });
-});
