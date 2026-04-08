@@ -16,6 +16,7 @@ const RADIO_FIELDS = ['workAuthorized', 'requireSponsorship', 'hasNonCompete'];
 const MAX_JOBS = 6;
 const WORK_EXPERIENCE_SAVE_DEBOUNCE_MS = 250;
 let workExperienceSaveTimer = null;
+const ACTIVE_TAB_STORAGE_KEY = 'jobfillActiveTab';
 const RESUME_SOURCE_URL = 'https://benrussell.myportfolio.com/resume';
 const RESUME_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const MIN_JOB_DESCRIPTION_LENGTH = 120;
@@ -173,12 +174,37 @@ function deleteJobEntry(index) {
 }
 
 // ── Tab switching ─────────────────────────────────────────
+function activateTab(tabName) {
+  if (!tabName) return false;
+
+  const targetTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  const targetPanel = document.getElementById(`panel-${tabName}`);
+  if (!targetTab || !targetPanel) return false;
+
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  targetTab.classList.add('active');
+  targetPanel.classList.add('active');
+  return true;
+}
+
+function persistActiveTab(tabName) {
+  storageSet({ [ACTIVE_TAB_STORAGE_KEY]: tabName });
+}
+
+function restoreActiveTab() {
+  return storageGet(ACTIVE_TAB_STORAGE_KEY).then(({ [ACTIVE_TAB_STORAGE_KEY]: savedTab }) => {
+    if (savedTab) {
+      activateTab(savedTab);
+    }
+  });
+}
+
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
+    if (activateTab(tab.dataset.tab)) {
+      persistActiveTab(tab.dataset.tab);
+    }
   });
 });
 
@@ -861,3 +887,4 @@ document.addEventListener('input', (e) => {
 loadProfile();
 renderWorkExperience();
 loadMatchTabState();
+restoreActiveTab();

@@ -142,7 +142,7 @@
 
   // ── Attribute-based fallback field detection ───────────
   function detectFieldFromAttributes(el) {
-    const haystack = [
+    const rawPieces = [
       el.name,
       el.id,
       el.getAttribute('autocomplete'),
@@ -153,10 +153,13 @@
       el.getAttribute('data-field'),
       el.getAttribute('data-testid'),
       el.placeholder,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
+    ].filter(Boolean);
+
+    const camelSplit = rawPieces
+      .map(v => String(v).replace(/([a-z])([A-Z])/g, '$1 $2'))
+      .join(' ');
+
+    const haystack = camelSplit.toLowerCase();
 
     if (!haystack) return null;
 
@@ -280,6 +283,63 @@
     }
 
     return raw;
+  }
+
+  const MONTH_NAMES = [
+    'january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december',
+  ];
+
+  function getDateSelectPart(el, labels = []) {
+    const labelText = labels.join(' ').toLowerCase();
+    if (labelText.includes('month')) return 'month';
+    if (labelText.includes('year')) return 'year';
+
+    const optionTexts = Array.from(el.options || [])
+      .map(o => (o.textContent || o.value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 12);
+
+    const hasMonthName = optionTexts.some(t => MONTH_NAMES.some(m => t.includes(m.slice(0, 3))));
+    if (hasMonthName) return 'month';
+
+    const hasYear = optionTexts.some(t => /\b\d{4}\b/.test(t));
+    if (hasYear) return 'year';
+
+    return 'combined';
+  }
+
+  function setDateSelectValue(el, dateValue, part) {
+    const parsed = parseDateParts(dateValue);
+    if (!parsed) return false;
+
+    const mm = String(parsed.month).padStart(2, '0');
+    const m = String(parsed.month);
+    const monthShort = MONTH_NAMES[parsed.month - 1].slice(0, 3);
+    const monthLong = MONTH_NAMES[parsed.month - 1];
+    const yyyy = String(parsed.year);
+
+    if (part === 'month') {
+      const targets = [mm, m, monthShort, monthLong].filter(Boolean);
+      return targets.some(target => setSelectValue(el, target));
+    }
+
+    if (part === 'year') {
+      return setSelectValue(el, yyyy);
+    }
+
+    const combinedTargets = [
+      `${mm}/${yyyy}`,
+      `${yyyy}-${mm}`,
+      `${monthShort} ${yyyy}`,
+      `${monthLong} ${yyyy}`,
+      `${monthLong}, ${yyyy}`,
+      `${monthShort}, ${yyyy}`,
+      `${monthLong}-${yyyy}`,
+      `${monthShort}-${yyyy}`,
+    ];
+
+    return combinedTargets.some(target => setSelectValue(el, target));
   }
 
   // ── Set a <select> value by fuzzy text matching ──────────
@@ -519,7 +579,7 @@
       workLabels.forEach((_, field) => workFieldEls.set(field, []));
 
       textEls.forEach(el => {
-        if (el.disabled || el.readOnly) return;
+        if (el.disabled) return;
 
         const labels = getElementLabels(el);
         const inferredField = detectFieldFromAttributes(el);
@@ -554,6 +614,49 @@
             setInputValue(el, normalizeValueForElement(el, value, field), { isDateLike: isDateFieldName(field) });
             filled++;
           }
+        });
+      });
+
+      // Fill work experience date dropdowns (common in Workday)
+      const workDateSelectEls = {
+        startDate: { month: [], year: [], combined: [] },
+        endDate: { month: [], year: [], combined: [] },
+      };
+
+      document.querySelectorAll('select').forEach(el => {
+        if (el.disabled) return;
+
+        const labels = getElementLabels(el);
+        const inferredField = detectFieldFromAttributes(el);
+
+        let matchedField = null;
+        for (const [field, patterns] of workLabels.entries()) {
+          if (field !== 'startDate' && field !== 'endDate') continue;
+          if (matchesPattern(labels, patterns)) {
+            matchedField = field;
+            break;
+          }
+        }
+
+        if (!matchedField && (inferredField === 'startDate' || inferredField === 'endDate')) {
+          matchedField = inferredField;
+        }
+
+        if (!matchedField) return;
+
+        const part = getDateSelectPart(el, labels);
+        workDateSelectEls[matchedField][part].push(el);
+      });
+
+      ['startDate', 'endDate'].forEach((field) => {
+        ['month', 'year', 'combined'].forEach((part) => {
+          workDateSelectEls[field][part].forEach((el, index) => {
+            const job = workExperience[index];
+            if (!job || !job[field]) return;
+            if (setDateSelectValue(el, job[field], part)) {
+              filled++;
+            }
+          });
         });
       });
     }

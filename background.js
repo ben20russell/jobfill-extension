@@ -9,7 +9,8 @@ function createJobfillWindow() {
   chrome.windows.create(
     {
       url: chrome.runtime.getURL(JOBFILL_WINDOW_URL),
-      type: 'popup',
+      // Use a normal window so it stays open until the user explicitly closes it.
+      type: 'normal',
       width: JOBFILL_WINDOW_WIDTH,
       height: JOBFILL_WINDOW_HEIGHT,
       focused: true,
