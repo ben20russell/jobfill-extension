@@ -12,8 +12,8 @@
   "host_permissions": [
     "<all_urls>"
   ],
-  "action": {
-    "default_title": "JobFill-extension",
+  "sidebar_action": {
+    "default_panel": "popup.html",
     "default_icon": {
       "128": "icon.svg"
     }
