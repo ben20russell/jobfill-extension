@@ -47,13 +47,17 @@ function focusOrCreateJobfillWindow() {
   });
 }
 
+function sendToggleSidebar(tab) {
+  chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_JOBFILL_SIDEBAR' });
+}
+
 if (chrome.action && chrome.action.onClicked) {
-  chrome.action.onClicked.addListener(() => {
-    focusOrCreateJobfillWindow();
+  chrome.action.onClicked.addListener((tab) => {
+    sendToggleSidebar(tab);
   });
 } else if (chrome.browserAction && chrome.browserAction.onClicked) {
-  chrome.browserAction.onClicked.addListener(() => {
-    focusOrCreateJobfillWindow();
+  chrome.browserAction.onClicked.addListener((tab) => {
+    sendToggleSidebar(tab);
   });
 }
 

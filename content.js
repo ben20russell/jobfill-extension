@@ -1,3 +1,41 @@
+(function () {
+  // Sidebar injection logic
+  if (window.hasJobFillSidebarInjected) return;
+  window.hasJobFillSidebarInjected = true;
+
+  function createSidebar() {
+    if (document.getElementById('jobfill-sidebar')) return;
+    const sidebar = document.createElement('iframe');
+    sidebar.id = 'jobfill-sidebar';
+    sidebar.src = chrome.runtime.getURL('popup.html');
+    sidebar.style.position = 'fixed';
+    sidebar.style.top = '0';
+    sidebar.style.right = '0';
+    sidebar.style.width = '440px';
+    sidebar.style.height = '100vh';
+    sidebar.style.zIndex = '999999';
+    sidebar.style.border = 'none';
+    sidebar.style.boxShadow = '0 0 8px rgba(0,0,0,0.2)';
+    sidebar.style.background = 'white';
+    document.body.appendChild(sidebar);
+  }
+
+  function removeSidebar() {
+    const sidebar = document.getElementById('jobfill-sidebar');
+    if (sidebar) sidebar.remove();
+  }
+
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg && msg.action === 'TOGGLE_JOBFILL_SIDEBAR') {
+      const sidebar = document.getElementById('jobfill-sidebar');
+      if (sidebar) {
+        removeSidebar();
+      } else {
+        createSidebar();
+      }
+    }
+  });
+})();
 // ============================================================
 // JobFill — content.js
 // Autofill engine for job application forms
