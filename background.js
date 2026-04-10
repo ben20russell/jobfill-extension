@@ -47,9 +47,15 @@ function focusOrCreateJobfillWindow() {
   });
 }
 
-chrome.action.onClicked.addListener(() => {
-  focusOrCreateJobfillWindow();
-});
+if (chrome.action && chrome.action.onClicked) {
+  chrome.action.onClicked.addListener(() => {
+    focusOrCreateJobfillWindow();
+  });
+} else if (chrome.browserAction && chrome.browserAction.onClicked) {
+  chrome.browserAction.onClicked.addListener(() => {
+    focusOrCreateJobfillWindow();
+  });
+}
 
 chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === jobfillWindowId) {
