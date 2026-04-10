@@ -16,8 +16,7 @@
     "default_title": "JobFill-extension",
     "default_icon": {
       "128": "icon.svg"
-    },
-    "default_popup": "popup.html"
+    }
   },
   "background": {
     "service_worker": "background.js"
