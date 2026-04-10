@@ -47,8 +47,18 @@ function focusOrCreateJobfillWindow() {
   });
 }
 
+
+function injectContentScript(tab, callback) {
+  chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['content.js']
+  }, callback);
+}
+
 function sendToggleSidebar(tab) {
-  chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_JOBFILL_SIDEBAR' });
+  injectContentScript(tab, () => {
+    chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_JOBFILL_SIDEBAR' });
+  });
 }
 
 if (chrome.action && chrome.action.onClicked) {
